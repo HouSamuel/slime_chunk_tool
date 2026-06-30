@@ -29,6 +29,7 @@ use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::Instant;
+use std::path::Path;
 
 // ============================================================
 //  FastRandom：模拟 Java Random
@@ -80,7 +81,7 @@ fn num_width(mut n: i32) -> usize {
     w
 }
 
-/// 构建种子文件头部（仅必要元数据）
+/// 构建种子文件头部
 fn build_seed_header(
     min_x: i32,
     max_x: i32,
@@ -116,6 +117,7 @@ fn build_seed_header(
 }
 
 /// 输出完整种子文件（全缓冲并行）
+/// 参数 `filename` 改为 `&Path`，便于传入绝对路径
 fn output_seed_file(
     min_x: i32,
     max_x: i32,
@@ -131,12 +133,13 @@ fn output_seed_file(
     fz_arr: &[i64],
     zero_cell: &[u8],
     one_cell: &[u8],
-    filename: &str,
+    filename: &Path,
     seed: i64,
 ) -> std::io::Result<()> {
     let num_cpus = rayon::current_num_threads();
     let chunk_size = (z_count + num_cpus - 1) / num_cpus;
 
+    // 并行生成每个块的数据
     let block_results: Vec<Vec<u8>> = (0..num_cpus)
         .into_par_iter()
         .map(|block_id| {
@@ -184,7 +187,7 @@ fn output_seed_file(
         output.extend_from_slice(&block);
     }
 
-    let file = File::create(filename)?;
+    let file = File::create(filename)?; // 现在 filename 是 &Path
     let mut writer = BufWriter::with_capacity(1024 * 1024, file);
     writer.write_all(&output)?;
     writer.flush()?;
@@ -197,6 +200,13 @@ fn output_seed_file(
 fn main() -> std::io::Result<()> {
     let total_start = Instant::now();
     let prep_start = Instant::now();
+
+    // ---------- 优化：获取可执行文件目录（只调用一次） ----------
+    let exe_dir = std::env::current_exe()
+        .expect("无法获取可执行文件路径")
+        .parent()
+        .expect("无法获取可执行文件所在目录")
+        .to_path_buf();
 
     // 直接截断种子为 i64（与 Java 一致）
     let seed_i64 = WORLD_SEED as i64;
@@ -213,7 +223,7 @@ fn main() -> std::io::Result<()> {
     let world_min_z = min_z * 16;
     let world_max_z = max_z * 16 + 15;
 
-    // 计算对齐宽度
+    // 计算对齐宽度（仅整数运算，极轻量）
     let mut max_w = 1;
     for x in min_x..=max_x {
         max_w = max_w.max(num_width(x));
@@ -224,7 +234,7 @@ fn main() -> std::io::Result<()> {
     let cell_w = max_w + 1;
     let z_col_w = max_w + 1;
 
-    // 生成表头
+    // 生成表头（一次性）
     let x_headers: Vec<Vec<u8>> = (min_x..=max_x)
         .map(|x| format!("{:<w$}", x, w = cell_w).into_bytes())
         .collect();
@@ -237,7 +247,7 @@ fn main() -> std::io::Result<()> {
     let mut one_cell = vec![b' '; cell_w];
     one_cell[0] = b'1';
 
-    // 预计算贡献值
+    // ---------- 核心优化：预计算每个坐标的贡献值，避免在循环中重复乘法 ----------
     let fx_arr: Vec<i64> = (min_x..=max_x)
         .map(|x| {
             let xi = x as i32;
@@ -261,7 +271,7 @@ fn main() -> std::io::Result<()> {
     // ---------- 计算阶段 ----------
     let compute_start = Instant::now();
 
-    // ========== 1. 生成网格 ==========
+    // ========== 1. 生成网格（Rayon 并行） ==========
     eprintln!("生成 {}×{} 网格...", x_count, z_count);
     let grid_start = Instant::now();
     let mut grid = vec![0u8; total];
@@ -291,6 +301,7 @@ fn main() -> std::io::Result<()> {
     // ========== 2. 输出种子文件 ==========
     if OUTPUT_SEED_FILE {
         let seed_filename = format!("seed_{}.txt", seed_i64);
+        let seed_path = exe_dir.join(&seed_filename);   // 拼接可执行文件所在目录
         output_seed_file(
             min_x, max_x, min_z, max_z,
             x_count, z_count,
@@ -298,7 +309,7 @@ fn main() -> std::io::Result<()> {
             &x_headers, &z_headers,
             &fx_arr, &fz_arr,
             &zero_cell, &one_cell,
-            &seed_filename,
+            &seed_path,               // 传入 &Path
             seed_i64,
         )?;
         eprintln!("种子文件已输出 {}", seed_filename);
@@ -325,7 +336,16 @@ fn main() -> std::io::Result<()> {
     println!("计算+写入耗时: {:?}", compute_write_time);
     println!("总耗时: {:?}", total_time);
     if OUTPUT_SEED_FILE {
-        println!("种子文件: seed_{}.txt", seed_i64);
+        let seed_filename = format!("seed_{}.txt", seed_i64);
+        let seed_path = exe_dir.join(&seed_filename);
+        // 文件已经写入成功，可以直接 canonicalize
+        if let Ok(seed_abs) = std::fs::canonicalize(&seed_path) {
+            println!("种子文件: {}", seed_filename);
+            println!("  绝对路径: {}", seed_abs.display());
+        } else {
+            // 如果 canonicalize 失败（极少数情况），至少打印文件名
+            println!("种子文件: {}", seed_filename);
+        }
     }
 
     Ok(())

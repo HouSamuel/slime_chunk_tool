@@ -48,13 +48,13 @@ const OUTPUT_SEED_FILE: bool = true;
 终端输出示例
 ```shell
    Compiling slime_chunk_scanner v0.1.0 (/Users/qqhou/Desktop/tools/slime_chunk_tool)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.30s
-     Running `target/debug/slime_chunk_scanner`
+    Finished `release` profile [optimized] target(s) in 2.89s
+     Running `target/release/slime_chunk_scanner`
 生成 201×201 网格...
-网格生成耗时: 1.71775ms
+网格生成耗时: 288.708µs
 种子文件已输出 seed_20260627.txt
 开始模式匹配...
-匹配耗时: 5.539625ms
+匹配耗时: 115µs
 匹配结果已写入 match_20260627.txt
 
 ========== 扫描完成 ==========
@@ -65,12 +65,15 @@ const OUTPUT_SEED_FILE: bool = true;
 世界坐标范围: X [-1600, 1615], Z [-1600, 1615]
 总区块数: 201 × 201 = 40401
 匹配目标: 0 个 (找到 2)
-预处理耗时: 407.792µs
-计算+写入耗时: 6.104917ms
-匹配耗时: 5.881417ms
-总耗时: 12.394583ms
+预处理耗时: 116.083µs
+计算+写入耗时: 1.151291ms
+匹配耗时: 290.291µs
+总耗时: 1.558ms
 输出文件: match_20260627.txt
 种子文件: seed_20260627.txt
+  绝对路径: /....../slime_chunk_tool/target/release/seed_20260627.txt
+匹配结果已写入 match_20260627.txt
+  绝对路径: /....../slime_chunk_tool/target/release/match_20260627.txt
 ```
 文件输出示例:
 

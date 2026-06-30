@@ -43,9 +43,10 @@ use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::Instant;
+use std::path::Path;
 
 // ============================================================
-//  FastRandom：模拟 Java Random
+//  FastRandom：模拟 Java Random（高度优化内联）
 // ============================================================
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -94,7 +95,7 @@ fn num_width(mut n: i32) -> usize {
     w
 }
 
-/// 构建种子文件头部（仅必要元数据）
+/// 构建种子文件头部
 fn build_seed_header(
     min_x: i32,
     max_x: i32,
@@ -129,7 +130,7 @@ fn build_seed_header(
     h
 }
 
-/// 输出完整种子文件（全缓冲并行）
+/// 输出完整种子文件（全缓冲并行写入，每行独立计算）
 fn output_seed_file(
     min_x: i32,
     max_x: i32,
@@ -145,12 +146,13 @@ fn output_seed_file(
     fz_arr: &[i64],
     zero_cell: &[u8],
     one_cell: &[u8],
-    filename: &str,
+    filename: &Path,
     seed: i64,
 ) -> std::io::Result<()> {
     let num_cpus = rayon::current_num_threads();
     let chunk_size = (z_count + num_cpus - 1) / num_cpus;
 
+    // 并行生成每个块的数据
     let block_results: Vec<Vec<u8>> = (0..num_cpus)
         .into_par_iter()
         .map(|block_id| {
@@ -190,6 +192,7 @@ fn output_seed_file(
         })
         .collect();
 
+    // 写入头部 + 所有块
     let header = build_seed_header(
         min_x, max_x, min_z, max_z, x_count, z_count, cell_width, z_col_width, x_headers, seed,
     );
@@ -212,7 +215,13 @@ fn main() -> std::io::Result<()> {
     let total_start = Instant::now();
     let prep_start = Instant::now();
 
-    // 直接截断种子为 i64
+    // ===== 优化点1：只获取一次可执行文件路径，不影响后续计算 =====
+    let exe_dir = std::env::current_exe()
+        .expect("无法获取可执行文件路径")
+        .parent()
+        .expect("无法获取可执行文件所在目录")
+        .to_path_buf();
+
     let seed_i64 = WORLD_SEED as i64;
 
     let (min_x, max_x) = (CENTER_X - RADIUS, CENTER_X + RADIUS);
@@ -226,6 +235,7 @@ fn main() -> std::io::Result<()> {
     let world_min_z = min_z * 16;
     let world_max_z = max_z * 16 + 15;
 
+    // ===== 优化点2：预计算列宽（只有整数运算，极轻量） =====
     let mut max_w = 1;
     for x in min_x..=max_x {
         max_w = max_w.max(num_width(x));
@@ -236,6 +246,7 @@ fn main() -> std::io::Result<()> {
     let cell_w = max_w + 1;
     let z_col_w = max_w + 1;
 
+    // ===== 优化点3：表头预生成（一次性开销） =====
     let x_headers: Vec<Vec<u8>> = (min_x..=max_x)
         .map(|x| format!("{:<w$}", x, w = cell_w).into_bytes())
         .collect();
@@ -248,6 +259,7 @@ fn main() -> std::io::Result<()> {
     let mut one_cell = vec![b' '; cell_w];
     one_cell[0] = b'1';
 
+    // ===== 优化点4：预计算每个坐标的贡献值，避免在循环中重复乘法和溢出检查 =====
     let fx_arr: Vec<i64> = (min_x..=max_x)
         .map(|x| {
             let xi = x as i32;
@@ -271,11 +283,12 @@ fn main() -> std::io::Result<()> {
     // ---------- 计算阶段 ----------
     let compute_start = Instant::now();
 
-    // ========== 1. 生成网格 ==========
+    // ========== 1. 生成网格（并行） ==========
     eprintln!("生成 {}×{} 网格...", x_count, z_count);
     let grid_start = Instant::now();
     let mut grid = vec![0u8; total];
 
+    // ===== 优化点5：Rayon并行迭代，每个chunk独立计算，无锁竞争 =====
     grid.par_chunks_mut(x_count)
         .enumerate()
         .for_each(|(z_offset, row)| {
@@ -298,9 +311,10 @@ fn main() -> std::io::Result<()> {
     let grid_time = grid_start.elapsed();
     eprintln!("网格生成耗时: {:?}", grid_time);
 
-    // ========== 2. 输出种子文件 ==========
+    // ========== 2. 输出种子文件（可选） ==========
     if OUTPUT_SEED_FILE {
         let seed_filename = format!("seed_{}.txt", seed_i64);
+        let seed_path = exe_dir.join(&seed_filename);
         output_seed_file(
             min_x, max_x, min_z, max_z,
             x_count, z_count,
@@ -308,7 +322,7 @@ fn main() -> std::io::Result<()> {
             &x_headers, &z_headers,
             &fx_arr, &fz_arr,
             &zero_cell, &one_cell,
-            &seed_filename,
+            &seed_path,
             seed_i64,
         )?;
         eprintln!("种子文件已输出 {}", seed_filename);
@@ -328,6 +342,7 @@ fn main() -> std::io::Result<()> {
     let max_x_start = x_count - PATTERN_WIDTH + 1;
     let max_z_start = z_count - PATTERN_HEIGHT + 1;
 
+    // ===== 优化点6：使用简单循环进行模式匹配（由于模式全为1，可简化，但保留通用性） =====
     'outer: for z_start in 0..max_z_start {
         for x_start in 0..max_x_start {
             let mut ok = true;
@@ -360,7 +375,8 @@ fn main() -> std::io::Result<()> {
 
     // ========== 4. 输出匹配结果 ==========
     let match_filename = format!("match_{}.txt", seed_i64);
-    let match_file = File::create(&match_filename)?;
+    let match_path = exe_dir.join(&match_filename);
+    let match_file = File::create(&match_path)?;
     let mut writer = BufWriter::with_capacity(1024 * 1024, match_file);
 
     writeln!(
@@ -464,8 +480,19 @@ fn main() -> std::io::Result<()> {
     println!("总耗时: {:?}", total_time);
     println!("输出文件: {}", match_filename);
     if OUTPUT_SEED_FILE {
-        println!("种子文件: seed_{}.txt", seed_i64);
+        let seed_filename = format!("seed_{}.txt", seed_i64);
+        let seed_path = exe_dir.join(&seed_filename);
+        // 文件已经写入成功，可以直接 canonicalize
+        if let Ok(seed_abs) = std::fs::canonicalize(&seed_path) {
+            println!("种子文件: {}", seed_filename);
+            println!("  绝对路径: {}", seed_abs.display());
+        } else {
+            // 如果 canonicalize 失败（极少数情况），至少打印文件名
+            println!("种子文件: {}", seed_filename);
+        }
     }
-
+    eprintln!("匹配结果已写入 {}", match_filename);
+    let match_abs = std::fs::canonicalize(&match_path)?;
+    println!("  绝对路径: {}", match_abs.display());
     Ok(())
 }
