@@ -1,8 +1,10 @@
 # slime_chunk_tools
 这是一个用于处理我的世界java版史莱姆区块的工具(vibecoding产物)
+
 由rust编写
 ### 史莱姆区块判定
 slime_check.rs
+
 开头硬编码配置区
 ```rust
 const WORLD_SEED: i128 = 20260627;//世界种子，非法种子需要自己在wiki上转换
@@ -16,6 +18,7 @@ const OUTPUT_SEED_FILE: bool = true;//不知道在为什么增加了这个功能
 ```
 ### 史莱姆区块匹配
 slime_check_match.rs
+
 开头也是硬编码配置
 ```rust
 const WORLD_SEED: i128 = 20260627;
@@ -43,8 +46,11 @@ const OUTPUT_SEED_FILE: bool = true;
 ```
 ---
 想要哪个就把对应文件的代码复制到main.rs中
+
 这些都是通过硬编码设置，在目录中运行`cargo run --release`编译后运行
+
 输出的文件我想应该足够详细，可以直接读的，这里有输出示例
+
 终端输出示例
 ```shell
    Compiling slime_chunk_scanner v0.1.0 (/Users/qqhou/Desktop/tools/slime_chunk_tool)
