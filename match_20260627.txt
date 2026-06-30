@@ -1,0 +1,19 @@
+==== Minecraft Java Slime Chunk Pattern Match Result ====
+World Seed:            20260627
+Center Chunk X/Z:      0, 0
+Scan Radius:           100
+X Range [min, max]:    [-100, 100]
+Z Range [min, max]:    [-100, 100]
+World X Range:         [-1600, 1615]
+World Z Range:         [-1600, 1615]
+Map Dimensions:        201 × 201 chunks
+Pattern Matrix (3×3):
+  2 1 2 
+  2 1 2 
+  1 2 1 
+Legend: 0 = any, 1 = must be slime, 2 = must be non-slime
+Match Target:           0 (2 found)
+==================================================
+Found Matches (top-left chunk coordinates, X Z):
+  (72, -50)  ->  world: X [1152, 1167], Z [-800, -785]
+  (45, 22)  ->  world: X [720, 735], Z [352, 367]
